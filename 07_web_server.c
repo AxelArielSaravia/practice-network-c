@@ -27,98 +27,69 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
-enum Mime_Types {
-    MIME_TYPE_DEFAULT,
-    MIME_TYPE_AVIF,
-    MIME_TYPE_CSS,
-    MIME_TYPE_CSV,
-    MIME_TYPE_GIF,
-    MIME_TYPE_HTML,
-    MIME_TYPE_ICO,
-    MIME_TYPE_JPEG,
-    MIME_TYPE_JS,
-    MIME_TYPE_JSON,
-    MIME_TYPE_PNG,
-    MIME_TYPE_PDF,
-    MIME_TYPE_SVG,
-    MIME_TYPE_TXT,
-    MIME_TYPE_WEBP,
-    MIME_TYPE_XML
-};
-
-char const*const MIME_TYPES[] = {
-    [MIME_TYPE_DEFAULT] = "application/octet-stream",
-    [MIME_TYPE_AVIF]    = "image/avif",
-    [MIME_TYPE_CSS]     = "text/css",
-    [MIME_TYPE_CSV]     = "text/csv",
-    [MIME_TYPE_GIF]     = "image/gif",
-    [MIME_TYPE_HTML]    = "text/html",
-    [MIME_TYPE_ICO]     = "image/vnd.microsoft.icon",
-    [MIME_TYPE_JPEG]    = "image/jpeg",
-    [MIME_TYPE_JS]      = "text/javascript",
-    [MIME_TYPE_JSON]    = "application/json",
-    [MIME_TYPE_PNG]     = "image/png",
-    [MIME_TYPE_PDF]     = "application/pdf",
-    [MIME_TYPE_SVG]     = "image/svg+xml",
-    [MIME_TYPE_TXT]     = "text/plain",
-    [MIME_TYPE_WEBP]    = "image/webp",
-    [MIME_TYPE_XML]     = "application/xml"
-};
-
-enum Mime_Types get_content_type(char const* path) {
+char const* get_content_type(char const* path) {
     char const* last_dot = strrchr(path, '.');
     if (last_dot) {
-        return MIME_TYPE_DEFAULT;
+        if (strcmp(last_dot, ".avif") == 0) {
+            return "image/avif";
+        }
+        if (strcmp(last_dot, ".css") == 0) {
+            return "text/css";
+        }
+        if (strcmp(last_dot, ".csv") == 0) {
+            return "text/csv";
+        }
+        if (strcmp(last_dot, ".gif") == 0) {
+            return "image/gif";
+        }
+        if (strcmp(last_dot, ".html") == 0
+            || strcmp(last_dot, ".htm") == 0
+        ) {
+            return "text/html";
+        }
+        if (strcmp(last_dot, ".ico") == 0) {
+            return "image/vnd.microsoft.icon";
+        }
+        if (strcmp(last_dot, ".jpg") == 0
+            || strcmp(last_dot, ".jpeg") == 0
+        ) {
+            return "image/jpeg";
+        }
+        if (strcmp(last_dot, ".js") == 0
+            || strcmp(last_dot, ".mjs") == 0
+        ) {
+            return "text/javascript";
+        }
+        if (strcmp(last_dot, ".json") == 0) {
+            return "application/json";
+        }
+        if (strcmp(last_dot, ".png") == 0) {
+            return "image/png";
+        }
+        if (strcmp(last_dot, ".pdf") == 0) {
+            return "application/pdf";
+        }
+        if (strcmp(last_dot, ".svg") == 0) {
+            return "image/svg+xml";
+        }
+        if (strcmp(last_dot, ".txt") == 0) {
+            return "text/plain";
+        }
+        if (strcmp(last_dot, ".webp") == 0) {
+            return  "image/webp";
+        }
     }
-    if (strncmp(last_dot, ".avif", 5) == 0) {
-        return MIME_TYPE_AVIF;
-    } else if (strncmp(last_dot, ".css", 4) == 0) {
-        return MIME_TYPE_CSS;
-    } else if (strncmp(last_dot, ".csv", 4) == 0) {
-        return MIME_TYPE_CSV;
-    } else if (strncmp(last_dot, ".gif", 4) == 0) {
-        return MIME_TYPE_GIF;
-    } else if (strncmp(last_dot, ".htm", 4) == 0
-        || strncmp(last_dot, ".html", 5) == 0
-    ) {
-        return MIME_TYPE_HTML;
-    } else if (strncmp(last_dot, ".ico", 4) == 0) {
-        return MIME_TYPE_ICO;
-    } else if (strncmp(last_dot, ".jpg", 4) == 0
-        || strncmp(last_dot, ".jpeg", 5) == 0
-    ) {
-        return MIME_TYPE_JPEG;
-    } else if (strncmp(last_dot, ".js", 3) == 0
-        || strncmp(last_dot, ".mjs", 4) == 0
-    ) {
-        return MIME_TYPE_JS;
-    } else if (strncmp(last_dot, ".json", 5) == 0) {
-        return MIME_TYPE_JSON;
-    } else if (strncmp(last_dot, ".js", 3) == 0) {
-        return MIME_TYPE_ICO;
-    } else if (strncmp(last_dot, ".png", 4) == 0) {
-        return MIME_TYPE_PNG;
-    } else if (strncmp(last_dot, ".pdf", 4) == 0) {
-        return MIME_TYPE_PDF;
-    } else if (strncmp(last_dot, ".svg", 4) == 0) {
-        return MIME_TYPE_SVG;
-    } else if (strncmp(last_dot, ".txt", 4) == 0) {
-        return MIME_TYPE_TXT;
-    } else if (strncmp(last_dot, ".webp", 5) == 0) {
-        return MIME_TYPE_WEBP;
-    } else if (strncmp(last_dot, ".xml", 4) == 0) {
-        return MIME_TYPE_XML;
-    }
-    return MIME_TYPE_DEFAULT;
+    return "application/octet-stream";
 }
 
-SOCKET listen_tcp(char const* host, char const* port, int blocklog) {
-    if (blocklog < 1) {
-        blocklog = 1000;
-    }
+SOCKET listen_tcp(char const* host, char const* port) {
+    printf("Configuring local address...\n");
+    int blocklog = 10;
+
     struct addrinfo* bind_addr = 0;
-    if (getaddrinfo(
+    int r = getaddrinfo(
         host,
         port,
         &(struct addrinfo){
@@ -127,7 +98,8 @@ SOCKET listen_tcp(char const* host, char const* port, int blocklog) {
             .ai_flags = AI_PASSIVE
         },
         &bind_addr
-    )) {
+    );
+    if (r) {
         fprintf(stderr, "getaddrinfo() failed. (%d)\n", GET_SOCKET_ERRNO());
         exit(1);
     }
@@ -140,12 +112,14 @@ SOCKET listen_tcp(char const* host, char const* port, int blocklog) {
         fprintf(stderr, "socket() failed. (%d)\n", GET_SOCKET_ERRNO());
         exit(1);
     }
+    printf("Binding socket to local address...\n");
     if (bind(socket_listen, bind_addr->ai_addr, bind_addr->ai_addrlen)) {
         fprintf(stderr, "bind() failed. (%d)\n", GET_SOCKET_ERRNO());
         exit(1);
     }
     freeaddrinfo(bind_addr);
 
+    printf("Listening...\n");
     if (listen(socket_listen, blocklog) < 0) {
         fprintf(stderr, "listen() failed. (%d)\n", GET_SOCKET_ERRNO());
         exit(1);
@@ -156,88 +130,250 @@ SOCKET listen_tcp(char const* host, char const* port, int blocklog) {
 #define MAX_REQUEST_SIZE 2047
 
 struct client_info {
+    socklen_t address_len;
+    struct sockaddr_storage address;
     SOCKET socket;
-    int reveived;
-};
-struct client_request {
-    char req[MAX_REQUEST_SIZE + 1];
-};
-struct clients {
-    unsigned len;
-    unsigned cap;
+    char request[MAX_REQUEST_SIZE + 1];
+    int received;
+    struct client_info* next;
 };
 
-static struct client_info* clients_info = 0;
-static struct client_request* requests = 0;
-static struct sockaddr_storage* addresses = 0 ;
-static struct clients clients = {0};
+static struct client_info* clients = 0;
 
-void init_clients() {
-    clients_info = calloc(32, sizeof *clients_info);
-    addresses = calloc(32, sizeof *addresses);
-    requests = calloc(32, sizeof *requests);
-    if (!clients_info || !addresses || !requests) {
-        fprintf(stderr, "Alloc Error: buy more ram");
-        exit(1);
-    }
-    clients = (struct clients){
-        .len = 0,
-        .cap = 32,
-    };
-}
-
-void resize_clients(unsigned cap) {
-    clients_info = realloc(clients_info, cap * (sizeof *clients_info));
-    addresses = realloc(addresses, cap * (sizeof *addresses));
-    requests = realloc(requests, cap * (sizeof *requests));
-    if (!clients_info || !addresses || !requests) {
-        fprintf(stderr, "Alloc Error, buy more ram");
-        exit(1);
-    }
-    clients.cap = cap;
-}
-
-int get_client_index(SOCKET s) {
-    for (int i = 0; i < clients.len; i += 1) {
-        if (clients_info[i].socket == s) {
-            return i;
+struct client_info* get_client(SOCKET s) {
+    struct client_info* ci = clients;
+    while (1) {
+        if (!ci) {
+            break;
         }
+        if (ci->socket == s) {
+            return ci;
+        }
+        ci = ci->next;
     }
-    return -1;
+    struct client_info* n = calloc(1, sizeof *n);
+    if (!n) {
+        fprintf(stderr, "Out of memory\n");
+        exit(1);
+    }
+    *n = (struct client_info){
+        .address_len = sizeof n->address,
+        .next = clients,
+    };
+    clients = n;
+    return n;
 }
 
-void add_client(SOCKET s) {
-    if (clients.len == clients.cap) {
-        resize_clients(clients.cap + 32);
+void drop_client(struct client_info* client) {
+    CLOSE_SOCKET(client->socket);
+    struct client_info** p = &clients;
+    while (*p) {
+        if (*p == client) {
+            *p = client->next;
+            free(client);
+            return;
+        }
+        p = &(*p)->next;
     }
-    struct client_info client = clients_info[clients.len];
-    client.socket = s;
-
-    clients.len += 1;
+    fprintf(stderr, "drop_client not found.\n");
+    exit(1);
 }
 
-void drop_client(unsigned client_index) {
-    if (client_index >= clients.len) {
+char const* get_client_address(struct client_info* ci) {
+    static char addr_buff[100];
+    getnameinfo(
+        (struct sockaddr*)&ci->address,
+        ci->address_len,
+        addr_buff,
+        sizeof (addr_buff),
+        0,
+        0,
+        NI_NUMERICHOST
+    );
+    return addr_buff;
+}
+
+fd_set wait_on_clients(SOCKET server) {
+    fd_set reads;
+    FD_ZERO(&reads);
+    FD_SET(server, &reads);
+    SOCKET max_socket = server;
+    struct client_info* ci = clients;
+    while (ci) {
+        FD_SET(ci->socket, &reads);
+        if (ci->socket > max_socket) {
+            max_socket = ci->socket;
+        }
+        ci = ci->next;
+    }
+    if (select(max_socket + 1, &reads, 0, 0, 0) < 0) {
+        fprintf(stderr, "select() fauled, (%d)\n", GET_SOCKET_ERRNO());
+        exit(1);
+    }
+    return reads;
+}
+
+void send_400(struct client_info* client) {
+    char const* c400 = (
+        "HTTP/1.1 400 Bad Request\r\n"
+        "Conecction: close\r\n"
+        "Content-Length: 11\r\n"
+        "\r\n"
+        "Bad Request"
+    );
+    send(client->socket, c400, strlen(c400), 0);
+    drop_client(client);
+}
+
+void send_404(struct client_info* client) {
+    char const* c404 = (
+        "HTTP/1.1 404 Not Found\r\n"
+        "Conecction: close\r\n"
+        "Content-Length: 9\r\n"
+        "\r\n"
+        "Not Found"
+    );
+    send(client->socket, c404, strlen(c404), 0);
+    drop_client(client);
+}
+
+void serve_resource(struct client_info* client, char const* path) {
+    printf("serve resource %s %s\n", get_client_address(client), path);
+    if (strcmp(path, "/") == 0) {
+        path = "/index.html";
+    }
+    if (strlen(path) > 100) {
+        send_400(client);
         return;
     }
-    CLOSE_SOCKET(clients_info[client_index].socket);
+    if (strstr(path, "..")) {
+        send_404(client);
+        return;
+    }
+    char full_path[128];
+    sprintf(full_path, "public%s", path);
+    #if defined(_WIN32)
+        char* p = full_path;
+        while (*p) {
+            if (*p == '/') {
+                *p = '\\';
+            }
+            ++p;
+        }
+    #endif
+    FILE* fp = fopen(full_path, "rb");
+    if (!fp) {
+        send_404(client);
+        return;
+    }
+    fseek(fp, 0l, SEEK_END);
+    size_t cl = ftell(fp);
+    rewind(fp);
 
-    //swap
-    if (client_index < clients.len - 1) {
-        clients_info[client_index] = clients_info[clients.len-1];
-        addresses[client_index] = addresses[clients.len-1];
-        memccpy(
-            &clients_info[client_index],
-            &clients_info[clients.len-1],
-            0,
-            MAX_REQUEST_SIZE
-        );
+    char const* ct = get_content_type(full_path);
+
+    #define BSIZE 1024
+    char buffer[BSIZE];
+    sprintf(buffer, "HTTP/1.1 200 OK\r\n");
+    send(client->socket, buffer, strlen(buffer), 0);
+
+    sprintf(buffer, "Connection: close\r\n");
+    send(client->socket, buffer, strlen(buffer), 0);
+
+    sprintf(buffer, "Content-Length: %lu\r\n", cl);
+    send(client->socket, buffer, strlen(buffer), 0);
+
+    sprintf(buffer, "Content-Type: %s\r\n", ct);
+    send(client->socket, buffer, strlen(buffer), 0);
+
+    sprintf(buffer, "\r\n");
+    send(client->socket, buffer, strlen(buffer), 0);
+
+    int r = 0;
+    while (1) {
+        r = fread(buffer, 1, BSIZE, fp);
+        if (r) {
+            send(client->socket, buffer, r, 0);
+        }
     }
-    if (clients.len <= clients.cap - 64) {
-        resize_clients(clients.cap - 32);
-    }
+    fclose(fp);
+    drop_client(client);
 }
 
 int main() {
+    #if defined(_WIN32)
+        WSADATA d;
+        if (WSAStartup(MAKEWORD(2,2), &d)) {
+            fprintf(stderr, "Failed to initialize.\n");
+            return 1;
+        }
+    #endif
+
+    SOCKET server = listen_tcp("127.0.0.1", "8080");
+    while (1) {
+        fd_set reads = wait_on_clients(server);
+        if (FD_ISSET(server, &reads)) {
+            struct client_info* client = get_client(-1);
+            SOCKET socket = accept(
+                server,
+                (struct sockaddr*)&(client->address),
+                &(client->address_len)
+            );
+            if (!IS_VALID_SOCKET(socket)) {
+                fprintf(stderr, "accept() failed. (%d)\n", GET_SOCKET_ERRNO());
+                return 1;
+            }
+            client->socket = socket;
+            printf("New connection from %s.\n", get_client_address(client));
+        }
+        struct client_info* client = clients;
+        while (client) {
+            struct client_info* next = client->next;
+            if (FD_ISSET(client->socket, &reads)) {
+                if (MAX_REQUEST_SIZE == client->received) {
+                    send_400(client);
+                    continue;
+                }
+                int r = recv(
+                    client->socket,
+                    client->request + client->received,
+                    MAX_REQUEST_SIZE - client->received,
+                    0
+                );
+                if (r < 1) {
+                    printf(
+                        "Unexpected disconnect from %s.\n",
+                        get_client_address(client)
+                    );
+                    drop_client(client);
+                } else {
+                    client->received += r;
+                    client->request[client->received] = 0;
+                    char* q = strstr(client->request, "\r\n\r\n");
+                    if (q) {
+                        if (strncmp("GET /", client->request, 5)) {
+                            send_400(client);
+                        } else {
+                            char* path = client->request + 4;
+                            char* end_path = strstr(path, " ");
+                            if (!end_path) {
+                                send_400(client);
+                            } else {
+                                *end_path = 0;
+                                serve_resource(client, path);
+                            }
+                        }
+                    }
+                }
+            }
+            client = next;
+        }
+    }
+    printf("\nClosing socket...\n");
+    #if defined(_WIN32)
+        WSACleanup();
+    #endif
+
+    printf("Finished.\n");
     return 0;
 }
