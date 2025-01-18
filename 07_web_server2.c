@@ -129,58 +129,117 @@ SOCKET listen_tcp(char const* host, char const* port) {
 
 #define MAX_REQUEST_SIZE 2047
 
-struct client_info {
-    socklen_t address_len;
-    struct sockaddr_storage address;
-    SOCKET socket;
-    char request[MAX_REQUEST_SIZE + 1];
-    int received;
-    struct client_info* next;
+struct requests {
+char req[MAX_REQUEST_SIZE + 1];
+};
+struct client_arr {
+    unsigned len;
+    unsigned cap;
 };
 
-static struct client_info* clients = 0;
+struct client_arr clients = {0};
+SOCKET* sockets = 0;
+struct sockaddr_storage* addresses = 0;
+struct requests* requests = 0;
+int* received = 0;
 
-struct client_info* get_client(SOCKET s) {
-    struct client_info* ci = clients;
-    while (!ci) {
-        if (ci->socket == s) {
-            return ci;
-        }
-        ci = ci->next;
-    }
-    struct client_info* n = calloc(1, sizeof *n);
-    if (!n) {
+
+#define WSIZE 8
+void init_clients() {
+    sockets = calloc(WSIZE, sizeof *sockets);
+    addresses = calloc(WSIZE, sizeof *addresses);
+    requests = calloc(WSIZE, sizeof *requests);
+    received = calloc(WSIZE, sizeof *received);
+    if (!sockets || !addresses || !requests || !received) {
         fprintf(stderr, "Out of memory\n");
         exit(1);
     }
-    *n = (struct client_info){
-        .address_len = sizeof n->address,
-        .next = clients,
-    };
-    clients = n;
-    return n;
+    clients.cap = WSIZE;
 }
 
-void drop_client(struct client_info* client) {
-    CLOSE_SOCKET(client->socket);
-    struct client_info** p = &clients;
-    while (*p) {
-        if (*p == client) {
-            *p = client->next;
-            free(client);
-            return;
+void resize_clients(unsigned cap) {
+        SOCKET* sockets_n = realloc(sockets, (sizeof *sockets) * cap);
+        struct sockaddr_storage* addresses_n = realloc(
+            addresses,
+            (sizeof *addresses) * cap
+        );
+        struct requests* requests_n = realloc(requests, (sizeof *requests) * cap);
+        int* received_n = realloc(received, (sizeof *received) * cap);
+        if (!sockets_n || !addresses_n || !requests_n || !received_n) {
+            fprintf(stderr, "Out of memory\n");
+            exit(1);
         }
-        p = &(*p)->next;
-    }
-    fprintf(stderr, "drop_client not found.\n");
-    exit(1);
+        sockets = sockets_n;
+        addresses = addresses_n;
+        requests = requests_n;
+        received = received_n;
+
 }
 
-char const* get_client_address(struct client_info* ci) {
+unsigned new_client() {
+    if (clients.len == clients.cap) {
+        resize_clients(clients.cap + WSIZE);
+        clients.cap = clients.cap + WSIZE;
+    }
+    clients.len += 1;
+    return clients.len - 1;
+}
+
+void drop_client(unsigned cli_i) {
+    if (cli_i > clients.len || clients.len == 0) {
+        fprintf(stderr, "drop_client not found.\n");
+        return;
+    }
+
+    CLOSE_SOCKET(sockets[cli_i]);
+    unsigned const last = clients.len - 1;
+    if (cli_i < last) {
+        sockets[cli_i] = sockets[last];
+        addresses[cli_i] = addresses[last];
+        received[cli_i] = received[last];
+        memcpy(&requests[cli_i], &requests[last], strlen(requests[last].req));
+    }
+    sockets[last] = 0;
+    addresses[last] = (struct sockaddr_storage){0};
+    received[last] = 0;
+    requests[last].req[0] = 0;
+
+    clients.len -= 1;
+
+    if (clients.len < clients.cap - (WSIZE * 2)) {
+        resize_clients(clients.cap - WSIZE);
+        clients.cap = clients.cap - WSIZE;
+    }
+}
+
+fd_set wait_on_clients(SOCKET server) {
+    fd_set reads;
+    FD_ZERO(&reads);
+    FD_SET(server, &reads);
+    SOCKET max_socket = server;
+    for (int i = 0; i < clients.len; i += 1) {
+        FD_SET(sockets[i], &reads);
+        if (sockets[i] > max_socket) {
+            max_socket = sockets[i];
+        }
+    }
+    if (select(max_socket + 1, &reads, 0, 0, 0) < 0) {
+        fprintf(stderr, "select() failed, (%d)\n", GET_SOCKET_ERRNO());
+        exit(1);
+    }
+    return reads;
+}
+
+char const* get_client_address(unsigned cli_i) {
+    if (cli_i > clients.len) {
+        fprintf(stderr, "get_client_address() failed, client index error");
+        return 0;
+    }
     static char addr_buff[100];
+    socklen_t addr_len = sizeof addresses[cli_i];
     getnameinfo(
-        (struct sockaddr*)&ci->address,
-        ci->address_len,
+        (struct sockaddr*)&addresses[cli_i],
+        addr_len,
         addr_buff,
         sizeof (addr_buff),
         0,
@@ -190,27 +249,7 @@ char const* get_client_address(struct client_info* ci) {
     return addr_buff;
 }
 
-fd_set wait_on_clients(SOCKET server) {
-    fd_set reads;
-    FD_ZERO(&reads);
-    FD_SET(server, &reads);
-    SOCKET max_socket = server;
-    struct client_info* ci = clients;
-    while (ci) {
-        FD_SET(ci->socket, &reads);
-        if (ci->socket > max_socket) {
-            max_socket = ci->socket;
-        }
-        ci = ci->next;
-    }
-    if (select(max_socket + 1, &reads, 0, 0, 0) < 0) {
-        fprintf(stderr, "select() failed, (%d)\n", GET_SOCKET_ERRNO());
-        exit(1);
-    }
-    return reads;
-}
-
-void send_400(struct client_info* client) {
+void send_400(unsigned cli_i) {
     char const* c400 = (
         "HTTP/1.1 400 Bad Request\r\n"
         "Conecction: close\r\n"
@@ -218,11 +257,11 @@ void send_400(struct client_info* client) {
         "\r\n"
         "Bad Request"
     );
-    send(client->socket, c400, strlen(c400), 0);
-    drop_client(client);
+    send(sockets[cli_i], c400, strlen(c400), 0);
+    drop_client(cli_i);
 }
 
-void send_404(struct client_info* client) {
+void send_404(unsigned cli_i) {
     char const* c404 = (
         "HTTP/1.1 404 Not Found\r\n"
         "Conecction: close\r\n"
@@ -230,23 +269,27 @@ void send_404(struct client_info* client) {
         "\r\n"
         "Not Found"
     );
-    send(client->socket, c404, strlen(c404), 0);
-    drop_client(client);
+    send(sockets[cli_i], c404, strlen(c404), 0);
+    drop_client(cli_i);
 }
 
-void serve_resource(struct client_info* client, char const* path) {
-    printf("serve resource %s %s\n", get_client_address(client), path);
+void serve_resource(char const* path, unsigned cli_i) {
+    if (cli_i > clients.len) {
+        return;
+    }
+    printf("serve resource %s %s\n", get_client_address(cli_i), path);
     if (strcmp(path, "/") == 0) {
         path = "/index.html";
     }
     if (strlen(path) > 100) {
-        send_400(client);
+        send_400(cli_i);
         return;
     }
     if (strstr(path, "..")) {
-        send_404(client);
+        send_404(cli_i);
         return;
     }
+
     char full_path[128];
     sprintf(full_path, "public%s", path);
     #if defined(_WIN32)
@@ -258,44 +301,46 @@ void serve_resource(struct client_info* client, char const* path) {
             ++p;
         }
     #endif
+
     FILE* fp = fopen(full_path, "rb");
     if (!fp) {
-        send_404(client);
+        send_404(cli_i);
         return;
     }
     fseek(fp, 0l, SEEK_END);
     size_t cl = ftell(fp);
     rewind(fp);
 
-    char const* ct = get_content_type(full_path);
-
+    char const* ct = get_content_type(path);
     #define BSIZE 1024
     char buffer[BSIZE];
+    SOCKET socket = sockets[cli_i];
     sprintf(buffer, "HTTP/1.1 200 OK\r\n");
-    send(client->socket, buffer, strlen(buffer), 0);
+    send(socket, buffer, strlen(buffer), 0);
 
     sprintf(buffer, "Connection: close\r\n");
-    send(client->socket, buffer, strlen(buffer), 0);
+    send(socket, buffer, strlen(buffer), 0);
 
     sprintf(buffer, "Content-Length: %lu\r\n", cl);
-    send(client->socket, buffer, strlen(buffer), 0);
+    send(socket, buffer, strlen(buffer), 0);
 
     sprintf(buffer, "Content-Type: %s\r\n", ct);
-    send(client->socket, buffer, strlen(buffer), 0);
+    send(socket, buffer, strlen(buffer), 0);
 
     sprintf(buffer, "\r\n");
-    send(client->socket, buffer, strlen(buffer), 0);
+    send(socket, buffer, strlen(buffer), 0);
 
     int r = 0;
     while (1) {
         r = fread(buffer, 1, BSIZE, fp);
         if (r) {
-            send(client->socket, buffer, r, 0);
+    send(socket, buffer, r, 0);
         }
     }
     fclose(fp);
-    drop_client(client);
+    drop_client(cli_i);
 }
+
 
 int main() {
     #if defined(_WIN32)
@@ -307,70 +352,75 @@ int main() {
     #endif
 
     SOCKET server = listen_tcp("127.0.0.1", "8080");
+    init_clients();
+
     while (1) {
         fd_set reads = wait_on_clients(server);
         if (FD_ISSET(server, &reads)) {
-            struct client_info* client = get_client(-1);
+            unsigned cli_i = new_client();
+            socklen_t addr_len = sizeof addresses[0];
             SOCKET socket = accept(
                 server,
-                (struct sockaddr*)&(client->address),
-                &(client->address_len)
+                (struct sockaddr*)&addresses[cli_i],
+                &addr_len
             );
             if (!IS_VALID_SOCKET(socket)) {
-                fprintf(stderr, "accept() failed. (%d)\n", GET_SOCKET_ERRNO());
+                fprintf(stderr, "acceot() failed. (%d)\n", GET_SOCKET_ERRNO());
                 return 1;
             }
-            client->socket = socket;
-            printf("New connection from %s.\n", get_client_address(client));
+            sockets[cli_i] = socket;
+            printf("New connection from %s.\n", get_client_address(cli_i));
         }
-        struct client_info* client = clients;
-        while (client) {
-            struct client_info* next = client->next;
-            if (FD_ISSET(client->socket, &reads)) {
-                if (MAX_REQUEST_SIZE == client->received) {
-                    send_400(client);
+
+        unsigned i = 0;
+        while (i < clients.len) {
+            SOCKET socket = sockets[i];
+
+            if (FD_ISSET(socket, &reads)) {
+                if (MAX_REQUEST_SIZE == received[i]) {
+                    send_400(i);
                     continue;
                 }
+
                 int r = recv(
-                    client->socket,
-                    client->request + client->received,
-                    MAX_REQUEST_SIZE - client->received,
+                    socket,
+                    requests[i].req + received[i],
+                    MAX_REQUEST_SIZE - received[i],
                     0
                 );
                 if (r < 1) {
                     printf(
                         "Unexpected disconnect from %s.\n",
-                        get_client_address(client)
+                        get_client_address(i)
                     );
-                    drop_client(client);
+                    drop_client(i);
                 } else {
-                    client->received += r;
-                    client->request[client->received] = 0;
-                    char* q = strstr(client->request, "\r\n\r\n");
+                    received[i] += r;
+                    requests[i].req[received[i]] = 0;
+                    char* q = strstr(requests[i].req, "\r\n\r\n");
                     if (q) {
-                        if (strncmp("GET /", client->request, 5)) {
-                            send_400(client);
+                        if (strncmp("GET /", requests[i].req, 5)) {
+                            send_400(i);
                         } else {
-                            char* path = client->request + 4;
+                            char* path = requests[i].req + 4;
                             char* end_path = strstr(path, " ");
                             if (!end_path) {
-                                send_400(client);
+                                send_400(i);
                             } else {
                                 *end_path = 0;
-                                serve_resource(client, path);
+                                serve_resource(path, i);
+
+                                i += 1;
+                                continue;
                             }
                         }
                     }
                 }
+            } else {
+                i += 1;
             }
-            client = next;
         }
     }
-    printf("\nClosing socket...\n");
-    #if defined(_WIN32)
-        WSACleanup();
-    #endif
 
-    printf("Finished.\n");
     return 0;
 }
